@@ -1,0 +1,92 @@
+# Default (conservative) configuration for ks-autocuration.
+# All stages are configurable; this file documents every knob.
+
+recording:
+  # If null, the raw file is located from params.py (dat_path) inside the Kilosort folder.
+  path: null
+  # Scale factor to microvolts (e.g. 0.195 for Open Ephys Neuropixels AP). If null,
+  # amplitude-based metrics are computed on unscaled values and absolute-uV thresholds are skipped.
+  uv_per_bit: 0.195
+  preprocessing:
+    highpass_hz: 300
+    common_reference: global_median   # global_median | none
+
+evidence:
+  # Number of random spikes per unit used for waveform extraction
+  max_spikes_per_unit: 300
+  ms_before: 1.0
+  ms_after: 2.0
+  sparsity_radius_um: 75
+  n_jobs: 8
+  chunk_duration: "1s"
+  quality_metrics:
+    - num_spikes
+    - firing_rate
+    - presence_ratio
+    - snr
+    - isi_violation
+    - rp_violation
+    - sliding_rp_violation
+    - amplitude_cutoff
+    - amplitude_median
+
+merge:
+  enabled: true
+  # SpikeInterface merge-candidate presets to combine (union of candidates).
+  # "slay" is used additionally if the slay package is importable.
+  presets:
+    - temporal_splits
+    - similarity_correlograms
+  try_slay: true
+  # Verification gate applied to every candidate group (conservative):
+  # accept only if the merged spike train is no more contaminated than the worst
+  # constituent (+ epsilon), and the amplitude time course is continuous.
+  gate:
+    refractory_period_ms: 1.0
+    censored_period_ms: 0.3
+    contamination_epsilon: 0.02      # allowed increase vs. max of constituents
+    max_contamination_merged: 0.25   # absolute ceiling for the merged unit
+    min_template_similarity: 0.80    # cosine similarity on shared sparse channels
+    amplitude_step_max_z: 3.0        # max |z| jump of amplitude median at junction
+  # Remove duplicate spikes closer than censored_period_ms within a merged unit
+  censor_duplicates: true
+
+labeling:
+  # Each labeler runs if available; final label = conservative ensemble.
+  use_bombcell: true
+  use_unitrefine: true        # needs internet + optional deps on first run (cached after)
+  # Threshold ("IBL-style") labeler — always runs; thresholds below.
+  thresholds:
+    min_num_spikes: 100
+    min_presence_ratio: 0.70
+    max_sliding_rp_contamination: 0.10   # falls back to rp_violation contamination
+    max_amplitude_cutoff: 0.10
+    min_snr: 1.1
+    min_amplitude_median_uv: 20          # skipped if uv_per_bit is null
+  # Ensemble policy for the exported label:
+  #   noise  <- flagged noise by (bombcell AND unitrefine) when both ran, else by the ones that ran + thresholds
+  #   good   <- passes thresholds AND (bombcell good if ran) AND (unitrefine sua if ran)
+  #   mua    <- everything else neural
+  # 'conservative' never deletes spikes: noise units stay in the output, labeled noise.
+  policy: conservative
+  # Bombcell non-somatic units are excluded from 'good' (labeled mua) when true.
+  demote_non_somatic: true
+
+overmerge:
+  # Over-merge handling: demote-don't-split (field consensus; no auto-split in v0.1).
+  # Units whose amplitude distribution is strongly bimodal are demoted to mua.
+  enabled: true
+  bimodality_dip_pvalue: 0.01
+
+export:
+  # Folder name created next to the input Kilosort folder (or set an absolute path via CLI).
+  suffix: _curated
+  # Copy per-spike phy extras (pc_features, spike_positions, ...) so phy still opens the result.
+  copy_phy_extras: true
+  # Unit-id policy: untouched units keep their id; a merge keeps the id of its
+  # largest constituent; absorbed ids are labeled 'merged' in the tsvs.
+  id_policy: keep_original
+
+report:
+  enabled: true
+  max_panels: 200

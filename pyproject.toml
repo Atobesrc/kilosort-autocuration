@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ks-autocuration"
+version = "0.1.0"
+description = "Automated post-Kilosort curation (merge over-splits, relabel, QC) that re-exports in Kilosort/phy format"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Ruichang Sun" }]
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "pyyaml",
+    "spikeinterface[full]>=0.102",
+]
+
+[project.optional-dependencies]
+# ML-based labeling (UnitRefine models from Hugging Face) and SLAy merge preset
+ml = ["scikit-learn", "huggingface_hub", "skops"]
+dev = ["pytest"]
+
+[project.scripts]
+ks-autocurate = "ks_autocuration.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
