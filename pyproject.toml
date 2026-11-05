@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/Atobesrc/ks-autocuration"
+Repository = "https://github.com/Atobesrc/kilosort-autocuration"
 
 [project.optional-dependencies]
 # ML-based labeling (UnitRefine models from Hugging Face) and SLAy merge preset
