@@ -22,6 +22,20 @@ import numpy as np
 from .evidence import rp_contamination
 
 
+def _presence_intersection(t1: np.ndarray, t2: np.ndarray, duration_s: float,
+                           n_bins: int = 50) -> float:
+    """Histogram intersection of the two units' spike-mass distributions over the
+    session (0 = perfectly complementary in time — the drift-split signature;
+    1 = identical temporal profile). Rate-weighted, so sparse background activity
+    barely moves it, unlike a binary presence vector."""
+    h1, _ = np.histogram(t1, bins=n_bins, range=(0, duration_s))
+    h2, _ = np.histogram(t2, bins=n_bins, range=(0, duration_s))
+    s1, s2 = h1.sum(), h2.sum()
+    if s1 == 0 or s2 == 0:
+        return 1.0
+    return float(np.minimum(h1 / s1, h2 / s2).sum())
+
+
 @dataclass
 class MergeDecision:
     group: list            # unit ids (original dtype preserved via list)
@@ -69,11 +83,22 @@ def collect_candidates(analyzer, cfg: dict, verbose: bool = True):
     if cfg["merge"].get("try_slay", True):
         presets.append("slay")
 
+    # Candidate generation is deliberately liberal (loosened template threshold):
+    # precision comes from the verification gate, not from the preset chain.
+    cand = cfg["merge"].get("candidates", {})
+    steps_params = {"template_similarity":
+                    {"template_diff_thresh": float(cand.get("template_diff_thresh", 0.4))}}
+
     pairs_by_preset: dict[str, list] = {}
     failed: dict[str, str] = {}
     for preset in presets:
         try:
-            groups = compute_merge_unit_groups(analyzer, preset=preset, resolve_graph=True)
+            try:
+                groups = compute_merge_unit_groups(analyzer, preset=preset, resolve_graph=True,
+                                                   steps_params=steps_params)
+            except (TypeError, KeyError, ValueError):
+                # preset without a template_similarity step (or param renamed)
+                groups = compute_merge_unit_groups(analyzer, preset=preset, resolve_graph=True)
             pairs = []
             for g in groups:
                 g = list(g)
@@ -158,6 +183,13 @@ def verify_and_resolve(analyzer, pairs_by_preset: dict, cfg: dict, verbose: bool
         step_z = _amplitude_step_z(analyzer, u1, u2)
         scores["amplitude_step_z"] = step_z
 
+        # presence overlap: ~0 = complementary activity in time (drift split)
+        overlap = _presence_intersection(trains[u1], trains[u2], duration_s)
+        scores["presence_overlap"] = overlap
+        is_drift_pair = overlap <= gate.get("presence_overlap_drift_max", 0.30)
+        sim_floor = (gate.get("min_template_similarity_drift", 0.55) if is_drift_pair
+                     else gate["min_template_similarity"])
+
         ok = True
         if cm > max(c1, c2) + gate["contamination_epsilon"]:
             ok = False
@@ -165,9 +197,10 @@ def verify_and_resolve(analyzer, pairs_by_preset: dict, cfg: dict, verbose: bool
         if cm > gate["max_contamination_merged"]:
             ok = False
             reasons.append(f"merged contamination {cm:.3f} above absolute ceiling")
-        if sim < gate["min_template_similarity"]:
+        if sim < sim_floor:
             ok = False
-            reasons.append(f"template similarity {sim:.2f} below threshold")
+            reasons.append(f"template similarity {sim:.2f} below threshold "
+                           f"({'drift' if is_drift_pair else 'co-active'} floor {sim_floor})")
         if step_z > gate["amplitude_step_max_z"]:
             ok = False
             reasons.append(f"amplitude step z {step_z:.1f} too large")

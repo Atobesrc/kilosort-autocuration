@@ -43,7 +43,8 @@ def build_analyzer(sorting, recording, work_dir: Path, cfg: dict, verbose: bool 
         "spike_amplitudes": dict(),
         "unit_locations": dict(method="monopolar_triangulation"),
         "correlograms": dict(window_ms=100.0, bin_ms=0.5),
-        "template_similarity": dict(method="l1"),
+        # cosine: the scale the SI merge presets' template_diff_thresh defaults assume
+        "template_similarity": dict(method="cosine"),
         "principal_components": dict(n_components=5, mode="by_channel_local"),
         "spike_locations": dict(),
         "template_metrics": dict(include_multi_channel_metrics=True),

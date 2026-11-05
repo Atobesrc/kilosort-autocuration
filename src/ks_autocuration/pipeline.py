@@ -87,9 +87,12 @@ def run(ks_folder: str | Path,
     else:
         analyzer_merged = analyzer
 
-    # Stage 3+4: labeling on the merged population
+    # Stage 3+4: labeling on the merged population (merge targets are exempt from
+    # the bimodality screen: drift merges are amplitude-bimodal by construction)
     uv_scaled = bool(cfg["recording"].get("uv_per_bit"))
-    final_labels, per_labeler, label_prov = ensemble_labels(analyzer_merged, cfg, uv_scaled, verbose)
+    merged_targets = [g[0] for g in ordered_groups] if merge_groups else []
+    final_labels, per_labeler, label_prov = ensemble_labels(analyzer_merged, cfg, uv_scaled, verbose,
+                                                            merged_unit_ids=merged_targets)
     provenance["labeling"] = label_prov
 
     # Stage 5: export + report

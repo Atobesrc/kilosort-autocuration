@@ -19,6 +19,8 @@ evidence:
   sparsity_radius_um: 75
   n_jobs: 8
   chunk_duration: "1s"
+  # full set: the extra metrics (synchrony, drift, PC-based) are required by the
+  # UnitRefine classifiers and cost little on top of the waveform extraction
   quality_metrics:
     - num_spikes
     - firing_rate
@@ -29,15 +31,27 @@ evidence:
     - sliding_rp_violation
     - amplitude_cutoff
     - amplitude_median
+    - amplitude_cv
+    - firing_range
+    - synchrony
+    - drift
+    - mahalanobis
+    - d_prime
+    - nearest_neighbor
+    - silhouette
 
 merge:
   enabled: true
   # SpikeInterface merge-candidate presets to combine (union of candidates).
-  # "slay" is used additionally if the slay package is importable.
+  # "slay" is used additionally if available in the installed spikeinterface.
   presets:
     - temporal_splits
     - similarity_correlograms
   try_slay: true
+  # Candidate generation (recall side): the preset chains' template threshold is
+  # loosened here; precision comes from the verification gate below.
+  candidates:
+    template_diff_thresh: 0.4
   # Verification gate applied to every candidate group (conservative):
   # accept only if the merged spike train is no more contaminated than the worst
   # constituent (+ epsilon), and the amplitude time course is continuous.
@@ -46,7 +60,12 @@ merge:
     censored_period_ms: 0.3
     contamination_epsilon: 0.02      # allowed increase vs. max of constituents
     max_contamination_merged: 0.25   # absolute ceiling for the merged unit
-    min_template_similarity: 0.80    # cosine similarity on shared sparse channels
+    # similarity floor is presence-conditional: drift deforms the waveform, so a
+    # temporally complementary pair (the drift-split signature) gets a lower floor
+    # than a co-active pair, where high similarity is the main evidence
+    min_template_similarity: 0.80         # co-active pairs
+    min_template_similarity_drift: 0.55   # complementary-presence pairs
+    presence_overlap_drift_max: 0.30      # overlap coefficient below which a pair counts as complementary
     amplitude_step_max_z: 3.0        # max |z| jump of amplitude median at junction
   # Remove duplicate spikes closer than censored_period_ms within a merged unit
   censor_duplicates: true
@@ -64,13 +83,18 @@ labeling:
     min_snr: 1.1
     min_amplitude_median_uv: 20          # skipped if uv_per_bit is null
   # Ensemble policy for the exported label:
-  #   noise  <- flagged noise by (bombcell AND unitrefine) when both ran, else by the ones that ran + thresholds
-  #   good   <- passes thresholds AND (bombcell good if ran) AND (unitrefine sua if ran)
+  #   noise  <- every ML/heuristic labeler that ran (bombcell, unitrefine) says noise
+  #   good   <- passes thresholds AND (unitrefine sua if ran) AND not non-somatic AND
+  #             not amplitude-bimodal
   #   mua    <- everything else neural
   # 'conservative' never deletes spikes: noise units stay in the output, labeled noise.
   policy: conservative
   # Bombcell non-somatic units are excluded from 'good' (labeled mua) when true.
   demote_non_somatic: true
+  # Enforce bombcell's good/mua boundary on 'good' too (off by default: its stock
+  # thresholds are tuned on mouse data and are often far too strict elsewhere;
+  # its vote is always recorded in cluster_labels_by_labeler.tsv).
+  bombcell_gates_good: false
 
 overmerge:
   # Over-merge handling: demote-don't-split (field consensus; no auto-split in v0.1).

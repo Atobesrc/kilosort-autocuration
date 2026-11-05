@@ -34,11 +34,19 @@ def threshold_labels(metrics: pd.DataFrame, cfg: dict, uv_scaled: bool) -> pd.Se
 
     apply("num_spikes", lambda v: v >= th["min_num_spikes"])
     apply("presence_ratio", lambda v: v >= th["min_presence_ratio"])
-    if "sliding_rp_violation" in metrics.columns and metrics["sliding_rp_violation"].notna().any():
-        apply("sliding_rp_violation", lambda v: v <= th["max_sliding_rp_contamination"])
+    # contamination: sliding RP (IBL) where defined, falling back per-unit to
+    # rp_contamination (sliding RP is NaN for low-count units)
+    max_contam = th["max_sliding_rp_contamination"]
+    if "sliding_rp_violation" in metrics.columns and "rp_contamination" in metrics.columns:
+        contam = metrics["sliding_rp_violation"].fillna(metrics["rp_contamination"])
+        ok &= contam.apply(lambda v: bool(v <= max_contam) if pd.notna(v) else False)
     elif "rp_contamination" in metrics.columns:
-        apply("rp_contamination", lambda v: v <= th["max_sliding_rp_contamination"])
-    apply("amplitude_cutoff", lambda v: v <= th["max_amplitude_cutoff"])
+        apply("rp_contamination", lambda v: v <= max_contam)
+    # amplitude_cutoff is NaN for low-count units; missing evidence is not failure
+    # (those units are already gated by min_num_spikes and contamination)
+    if "amplitude_cutoff" in metrics.columns:
+        ok &= metrics["amplitude_cutoff"].apply(
+            lambda v: bool(v <= th["max_amplitude_cutoff"]) if pd.notna(v) else True)
     apply("snr", lambda v: v >= th["min_snr"])
     if uv_scaled and "amplitude_median" in metrics.columns:
         apply("amplitude_median", lambda v: abs(v) >= th["min_amplitude_median_uv"])
@@ -50,7 +58,7 @@ def bombcell_labels(analyzer, cfg: dict, verbose: bool = True):
     """Returns (labels Series in {'good','mua','noise','non-somatic*'}, error or None)."""
     try:
         from spikeinterface.curation import bombcell_label_units, bombcell_get_default_thresholds
-        thresholds = bombcell_get_default_thresholds(analyzer)
+        thresholds = bombcell_get_default_thresholds()
         df = bombcell_label_units(sorting_analyzer=analyzer, thresholds=thresholds)
         col = "bombcell_label" if "bombcell_label" in df.columns else df.columns[0]
         labels = df[col].astype(str).str.lower()
@@ -85,11 +93,16 @@ def unitrefine_labels(analyzer, verbose: bool = True):
         return None, f"{type(e).__name__}: {e}"
 
 
-def amplitude_bimodality_demotions(analyzer, cfg: dict) -> dict:
+def amplitude_bimodality_demotions(analyzer, cfg: dict, exclude_ids=()) -> dict:
     """Over-merge screen: units whose spike-amplitude distribution is strongly
-    bimodal get demoted to mua (demote-don't-split). Returns {unit_id: info}."""
+    bimodal get demoted to mua (demote-don't-split). Returns {unit_id: info}.
+
+    `exclude_ids`: units produced by an accepted drift merge — their amplitude
+    distribution is bimodal by construction (slow drift), and they were already
+    vetted by the merge gate (contamination + junction continuity)."""
     if not cfg["overmerge"]["enabled"]:
         return {}
+    exclude_ids = set(exclude_ids)
     try:
         from sklearn.mixture import GaussianMixture
     except ImportError:
@@ -98,6 +111,8 @@ def amplitude_bimodality_demotions(analyzer, cfg: dict) -> dict:
     amps_by_unit = amp_ext.get_data(outputs="by_unit")[0]
     flagged = {}
     for u in analyzer.unit_ids:
+        if u in exclude_ids:
+            continue
         a = np.asarray(amps_by_unit[u], dtype=float).reshape(-1, 1)
         if a.size < 200:
             continue
@@ -120,7 +135,8 @@ def amplitude_bimodality_demotions(analyzer, cfg: dict) -> dict:
     return flagged
 
 
-def ensemble_labels(analyzer, cfg: dict, uv_scaled: bool, verbose: bool = True):
+def ensemble_labels(analyzer, cfg: dict, uv_scaled: bool, verbose: bool = True,
+                    merged_unit_ids=()):
     """Run all labelers and combine. Returns (final: Series, per_labeler: DataFrame, errors: dict)."""
     metrics = get_quality_metrics(analyzer)
     errors: dict[str, str] = {}
@@ -144,8 +160,17 @@ def ensemble_labels(analyzer, cfg: dict, uv_scaled: bool, verbose: bool = True):
         else:
             columns["unitrefine_label"] = ur_lab
 
-    demotions = amplitude_bimodality_demotions(analyzer, cfg)
+    demotions = amplitude_bimodality_demotions(analyzer, cfg, exclude_ids=merged_unit_ids)
 
+    # Ensemble policy:
+    #   noise <- every labeler that ran (bombcell/unitrefine) agrees on noise
+    #   good  <- passes thresholds AND unitrefine-SUA (if it ran) AND not flagged
+    #            non-somatic by bombcell AND not amplitude-bimodal.
+    # Bombcell's good/mua boundary is recorded but does NOT gate 'good' by default:
+    # its default thresholds are tuned on mouse data and are often far too strict
+    # elsewhere, while its noise and non-somatic detections are robust. Set
+    # labeling.bombcell_gates_good: true to enforce it anyway.
+    bombcell_gates_good = bool(cfg["labeling"].get("bombcell_gates_good", False))
     final = {}
     for u in analyzer.unit_ids:
         t = th_lab.loc[u]
@@ -160,9 +185,9 @@ def ensemble_labels(analyzer, cfg: dict, uv_scaled: bool, verbose: bool = True):
             continue
         is_good = t == "good"
         if b is not None:
-            if cfg["labeling"].get("demote_non_somatic", True) and "somatic" in b and "non" in b:
+            if cfg["labeling"].get("demote_non_somatic", True) and "soma" in b and "non" in b:
                 is_good = False
-            elif b != "good":
+            elif bombcell_gates_good and b != "good":
                 is_good = False
         if r is not None and r not in ("sua", "good"):
             is_good = False
