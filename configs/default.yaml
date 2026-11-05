@@ -113,4 +113,5 @@ export:
 
 report:
   enabled: true
-  max_panels: 200
+  max_panels: 200           # evidence pages for accepted merges
+  max_rejected_panels: 40   # evidence pages for rejected candidates (rest listed as text)

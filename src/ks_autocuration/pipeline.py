@@ -101,7 +101,9 @@ def run(ks_folder: str | Path,
     dump_config(cfg, out / "curation_config.yaml")
 
     if cfg["report"].get("enabled", True):
-        report_path = write_report(out, analyzer_merged, merge_groups, decisions,
+        # the report needs the PRE-merge analyzer: its merge evidence pages plot the
+        # constituent units, which no longer exist in analyzer_merged
+        report_path = write_report(out, analyzer, merge_groups, decisions,
                                    final_labels, per_labeler, ks, cfg, provenance)
         if verbose:
             print(f"[pipeline] report: {report_path}")
