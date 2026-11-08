@@ -154,7 +154,9 @@ def _header_text(decision, group, n_spikes, target, gate, duration_s):
         f"(<= {gate['amplitude_step_max_z']:.1f}; low = continuous drift, no hard step)",
     ]
     if decision is not None and decision.reasons:
-        lines += ["", "verdict: " + "; ".join(decision.reasons)]
+        import textwrap
+        lines += [""] + textwrap.wrap("verdict: " + "; ".join(decision.reasons),
+                                      width=96, subsequent_indent="         ")
     return "\n".join(lines)
 
 

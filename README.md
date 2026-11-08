@@ -25,6 +25,32 @@ produces a QC report so every decision can be spot-checked and vetoed.
 Nothing is ever deleted: noise units stay in the output labeled `noise`; absorbed
 merge constituents are labeled `merged` and keep zero spikes.
 
+## Example output
+
+Every merge decision — accepted or rejected — gets a full evidence page in
+`curation_report.pdf`. Both examples below are real pages from an NHP
+temporal-cortex Neuropixels session (556 Kilosort4 clusters, 70 min).
+
+**Accepted: a drift over-split merged back into one neuron.** Same waveform
+(cosine 0.70), *complementary* activity periods (presence overlap 0.11 — unit 409
+hands off to unit 411 mid-session), one continuous amplitude band and one depth
+track across the junction, and a merged train with zero refractory contamination:
+
+![accepted drift-split merge](docs/images/merge_accepted_drift_split.png)
+
+**Rejected: two co-active neighbors the gate kept apart.** The waveforms are
+temptingly similar (cosine 0.77, just below the co-active floor) and a
+similarity-only rule would merge them — but both units fire throughout the session
+on two distinct depth tracks, and merging would triple refractory contamination
+(0.166 / 0.062 → 0.337): two cells, not one.
+
+![rejected co-active candidate](docs/images/merge_rejected_coactive.png)
+
+On this session the pipeline accepted 1 of 11 candidate pairs, removed 101 noise
+clusters by Bombcell∧UnitRefine consensus, and tightened `good` from 321 to 125
+units — Kilosort4's own drift handling left little to merge, which is exactly what
+a conservative gate should conclude.
+
 ## Install
 
 ```bash
@@ -68,8 +94,11 @@ plus:
 - `cluster_labels_by_labeler.tsv` — per-labeler votes (threshold / bombcell / unitrefine)
 - `lineage.json` — every old id → final id, with merge evidence
 - `curation.json` — SpikeInterface curation format (replayable via `apply_curation`)
-- `curation_report.pdf` — one panel per merge (waveforms, CCGs, amplitude-vs-time)
-  plus rejected candidates and label changes, for spot-checking
+- `curation_report.pdf` — a full evidence page per merge decision, accepted AND
+  rejected (probe-geometry footprint, peak-channel overlays, activity-over-time,
+  amplitude & depth drift tracks, ACGs/CCG + merged-train ACG with the refractory
+  window marked, all gate scores vs thresholds), plus label changes — see the
+  examples above
 - `run_summary.json`, `curation_config.yaml`, `curation_provenance.json`
 
 **Unit ids:** untouched units keep their original cluster id; a merge keeps the id
