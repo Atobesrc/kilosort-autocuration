@@ -1,9 +1,10 @@
-# ks-autocuration
+# kilosort-autocuration
 
-**Automated post-Kilosort curation that reads a Kilosort output folder and writes a
-curated folder in the same Kilosort/phy format.** Drop-in: any downstream pipeline
-that reads Kilosort output (phy, pyapl, custom loaders) can consume the curated
-folder unchanged.
+**Automatic curation of Kilosort / Kilosort4 spike sorting output: reads a Kilosort
+result folder and writes a curated folder in the same Kilosort/phy format.**
+Drop-in: any downstream pipeline that reads Kilosort output (phy, pyapl, custom
+loaders) can consume the curated folder unchanged. Designed for Neuropixels and
+other high-density probe recordings; installed as the `ks-autocuration` package.
 
 Spike sorters over-split units (drift makes one neuron look like two appearing at
 different times in the session) and over-merge others, and they mislabel quality.
